@@ -1,9 +1,51 @@
 const TelegramBot = require('node-telegram-bot-api');
 
 const TOKEN = process.env.BOT_TOKEN;
+if (!TOKEN) throw new Error('BOT_TOKEN muhit o\'zgaruvchisi topilmadi!');
 
 // Webhook rejimida bot (polling: false)
 const bot = new TelegramBot(TOKEN);
+
+// ─── Majburiy obuna kanali ─────────────────────────────────────────────────────
+
+const KANAL_ID       = -1003810486984;
+const KANAL_USERNAME = '@gridion_uz';
+const KANAL_URL      = 'https://t.me/gridion_uz';
+
+/**
+ * Foydalanuvchi kanalga obuna bo'lganini tekshiradi.
+ * true  → obuna bo'lgan
+ * false → obuna bo'lmagan
+ */
+async function obunaTekshir(userId) {
+  try {
+    const member = await bot.getChatMember(KANAL_ID, userId);
+    return ['member', 'administrator', 'creator'].includes(member.status);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Obuna bo'lmagan foydalanuvchiga xabar yuboradi.
+ */
+async function obunaXabari(chatId) {
+  await bot.sendMessage(
+    chatId,
+    `🔒 <b>Botdan foydalanish uchun kanalga obuna bo'ling!</b>\n\n` +
+    `📢 Kanal: ${KANAL_URL}\n\n` +
+    `Obuna bo'lgandan so'ng ✅ <b>Tekshirish</b> tugmasini bosing.`,
+    {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '📢 Kanalga o\'tish', url: KANAL_URL }],
+          [{ text: '✅ Obunani tekshirish', callback_data: 'check_subscription' }]
+        ]
+      }
+    }
+  );
+}
 
 // ─── Yordamchi funksiyalar ─────────────────────────────────────────────────────
 
@@ -22,33 +64,177 @@ function turKorinishi(tur) {
   return turlar[tur] || '❓ Noma\'lum';
 }
 
+// ─── URL orqali username/ID aniqlash ──────────────────────────────────────────
+
+function urlDanUsernameAjrat(matn) {
+  matn = matn.trim();
+
+  const raqamliKanal = matn.match(/t\.me\/c\/(\d+)/i);
+  if (raqamliKanal) {
+    return { type: 'numeric_chat', value: '-100' + raqamliKanal[1] };
+  }
+
+  const inviteLink = matn.match(/t\.me\/\+([A-Za-z0-9_-]+)/i);
+  if (inviteLink) {
+    return { type: 'invite', value: inviteLink[1] };
+  }
+
+  const tMeUsername = matn.match(/(?:https?:\/\/)?t\.me\/([A-Za-z0-9_]{3,})/i);
+  if (tMeUsername) {
+    return { type: 'username', value: '@' + tMeUsername[1] };
+  }
+
+  const atUsername = matn.match(/^@([A-Za-z0-9_]{3,})$/);
+  if (atUsername) {
+    return { type: 'username', value: '@' + atUsername[1] };
+  }
+
+  return null;
+}
+
+async function urlOrqaliIdAniqlash(chatId, matn) {
+  const natija = urlDanUsernameAjrat(matn);
+
+  if (!natija) return false;
+
+  if (natija.type === 'invite') {
+    await bot.sendMessage(chatId,
+      `⚠️ <b>Taklif havolasi aniqlandi</b>\n\n` +
+      `❌ Taklif (invite) havolalaridan ID olib bo'lmaydi!\n\n` +
+      `📌 <b>Sabab:</b> Bu xususiy (private) guruh/kanal havolasi bo'lib, Telegram API orqali ID'ni aniqlash imkoni yo'q.\n\n` +
+      `💡 <b>Yechim:</b> Guruh/kanalga kiring va botni u yerga qo'shing, keyin /id buyrug'ini yuboring.`,
+      { parse_mode: 'HTML' }
+    );
+    return true;
+  }
+
+  if (natija.type === 'numeric_chat') {
+    const id = natija.value;
+    await bot.sendMessage(chatId,
+      `✅ <b>URL orqali aniqlandi</b>\n\n` +
+      `◆ Tur: 📢 Kanal / Guruh\n` +
+      `◆ ID: <code>${id}</code>\n\n` +
+      `⚠️ Bu ID faqat URL'dan olingan. To'liq ma'lumot uchun botni kanalga qo'shing.`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `📋 ID nusxalash: ${id}`, callback_data: `copy_${id}` }],
+            [{ text: '🚀 ID ulashish', switch_inline_query: `Kanal ID: ${id}` }]
+          ]
+        }
+      }
+    );
+    return true;
+  }
+
+  const username = natija.value;
+  const yuklanmoqda = await bot.sendMessage(chatId,
+    `🔄 <b>${username}</b> ma'lumotlari yuklanmoqda...`,
+    { parse_mode: 'HTML' }
+  );
+
+  try {
+    const chat  = await bot.getChat(username);
+    const id    = chat.id;
+    const title = chat.title || chat.first_name || chat.username || 'Noma\'lum';
+    const uname = chat.username ? `@${chat.username}` : 'Yo\'q';
+
+    let turNomi   = '❓ Noma\'lum';
+    let qoshimcha = '';
+
+    if (chat.type === 'private') {
+      turNomi = chat.is_bot ? '🤖 Bot' : '👤 Foydalanuvchi';
+      const familya = chat.last_name ? ` ${chat.last_name}` : '';
+      qoshimcha =
+        `◆ Ismi: <b>${title}${familya}</b>\n` +
+        `◆ Username: ${uname}\n`;
+    } else if (chat.type === 'channel') {
+      turNomi   = '📢 Kanal';
+      qoshimcha = `◆ Nomi: <b>${title}</b>\n◆ Username: ${uname}\n`;
+      if (chat.member_count) {
+        qoshimcha += `◆ A'zolar: <b>${chat.member_count.toLocaleString()}</b>\n`;
+      }
+    } else if (chat.type === 'supergroup') {
+      turNomi   = chat.is_forum ? '💬 Forum' : '👥 Supergroup';
+      qoshimcha = `◆ Nomi: <b>${title}</b>\n◆ Username: ${uname}\n`;
+      if (chat.member_count) {
+        qoshimcha += `◆ A'zolar: <b>${chat.member_count.toLocaleString()}</b>\n`;
+      }
+    } else if (chat.type === 'group') {
+      turNomi   = '👥 Guruh';
+      qoshimcha = `◆ Nomi: <b>${title}</b>\n`;
+    }
+
+    await bot.deleteMessage(chatId, yuklanmoqda.message_id).catch(() => {});
+
+    await bot.sendMessage(chatId,
+      `✅ <b>URL / Username orqali aniqlandi</b>\n\n` +
+      `◆ Tur: ${turNomi}\n` +
+      `${qoshimcha}` +
+      `◆ ID: <code>${id}</code>`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `📋 ID nusxalash: ${id}`, callback_data: `copy_${id}` }],
+            [{ text: '🚀 ID ulashish', switch_inline_query: `${turNomi} ID: ${id}` }]
+          ]
+        }
+      }
+    );
+  } catch (err) {
+    await bot.deleteMessage(chatId, yuklanmoqda.message_id).catch(() => {});
+
+    await bot.sendMessage(chatId,
+      `❌ <b>Xatolik yuz berdi</b>\n\n` +
+      `Username: <code>${username}</code>\n\n` +
+      `📌 <b>Sabab:</b> ${
+        err.message.includes('chat not found')
+          ? 'Bu foydalanuvchi, kanal yoki guruh topilmadi. Username noto\'g\'ri yoki akkaunt mavjud emas.'
+          : err.message.includes('PEER_ID_INVALID')
+          ? 'Noto\'g\'ri ID. Bot bu chatga kirish imkoniga ega emas.'
+          : `API xatosi: ${err.message}`
+      }`,
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  return true;
+}
+
 // ─── Asosiy menyu ─────────────────────────────────────────────────────────────
 
 function asosiyMenyu(chatId) {
   return bot.sendMessage(
     chatId,
-    `🔍 Quyidagi tugmalardan birini tanlang:\n\n` +
-    `• <b>User / Premium / Bot</b> — foydalanuvchi ID'sini aniqlash\n` +
-    `• <b>Group / Channel / Forum</b> — guruh/kanal/forum ID'sini aniqlash\n` +
-    `• <b>My Group / My Channel / My Forum</b> — o'zingiznikini ulashish`,
+    `🔍 <b>Quyidagi usullardan birini tanlang:</b>\n\n` +
+    `👤 <b>Foydalanuvchi / Premium / Bot</b> — ID'sini aniqlash\n` +
+    `👥 <b>Guruh / Kanal / Forum</b> — ID'sini aniqlash\n` +
+    `🔗 <b>Havola / Username</b> — URL yoki @username yuboring\n` +
+    `📨 <b>Forward</b> — Xabarni forward qiling`,
     {
       parse_mode: 'HTML',
       reply_markup: {
         keyboard: [
           [
-            { text: '👤 User',    request_user: { request_id: 10, user_is_bot: false, user_is_premium: false } },
-            { text: '⭐ Premium', request_user: { request_id: 11, user_is_bot: false, user_is_premium: true  } },
-            { text: '🤖 Bot',     request_user: { request_id: 12, user_is_bot: true                          } }
+            { text: '👤 Foydalanuvchi', request_user: { request_id: 10, user_is_bot: false, user_is_premium: false } },
+            { text: '⭐ Premium',        request_user: { request_id: 11, user_is_bot: false, user_is_premium: true  } },
+            { text: '🤖 Bot',            request_user: { request_id: 12, user_is_bot: true                          } }
           ],
           [
-            { text: '👥 Group',   request_chat: { request_id: 20, chat_is_channel: false, chat_is_forum: false } },
-            { text: '📢 Channel', request_chat: { request_id: 21, chat_is_channel: true                        } },
+            { text: '👥 Guruh',   request_chat: { request_id: 20, chat_is_channel: false, chat_is_forum: false } },
+            { text: '📢 Kanal',   request_chat: { request_id: 21, chat_is_channel: true                        } },
             { text: '💬 Forum',   request_chat: { request_id: 22, chat_is_channel: false, chat_is_forum: true  } }
           ],
           [
-            { text: '👥 My Group',   request_chat: { request_id: 30, chat_is_channel: false, chat_is_forum: false, chat_is_created: true } },
-            { text: '📢 My Channel', request_chat: { request_id: 31, chat_is_channel: true,                        chat_is_created: true } },
-            { text: '💬 My Forum',   request_chat: { request_id: 32, chat_is_channel: false, chat_is_forum: true,  chat_is_created: true } }
+            { text: '👥 Mening guruhim',   request_chat: { request_id: 30, chat_is_channel: false, chat_is_forum: false, chat_is_created: true } },
+            { text: '📢 Mening kanalim',   request_chat: { request_id: 31, chat_is_channel: true,                        chat_is_created: true } },
+            { text: '💬 Mening forumim',   request_chat: { request_id: 32, chat_is_channel: false, chat_is_forum: true,  chat_is_created: true } }
+          ],
+          [
+            { text: '🆔 Mening ID\'im' },
+            { text: '📖 Yordam'         }
           ]
         ],
         resize_keyboard: true
@@ -78,15 +264,49 @@ function idNatijasi(chatId, tur, id) {
 // ─── Update'ni qayta ishlash ───────────────────────────────────────────────────
 
 async function handleUpdate(update) {
+
   // ── Callback query ──────────────────────────────────────────────────────────
   if (update.callback_query) {
-    const query = update.callback_query;
+    const query  = update.callback_query;
+    const chatId = query.message.chat.id;
+    const userId = query.from.id;
+
+    // Obuna tekshiruvi callback
+    if (query.data === 'check_subscription') {
+      const obunaBor = await obunaTekshir(userId);
+      if (obunaBor) {
+        await bot.answerCallbackQuery(query.id, {
+          text: '✅ Obuna tasdiqlandi! Botdan foydalanishingiz mumkin.',
+          show_alert: true
+        }).catch(() => {});
+
+        await bot.deleteMessage(chatId, query.message.message_id).catch(() => {});
+
+        const ism = query.from.first_name || 'Foydalanuvchi';
+        const id  = query.from.id;
+        await bot.sendMessage(chatId,
+          `👋 Salom, <b>${ism}</b>!\n\n` +
+          `🆔 <b>Sizning ID'ingiz:</b> <code>${id}</code>\n\n` +
+          `⬇️ Quyidagi menyudan foydalaning:`,
+          { parse_mode: 'HTML' }
+        ).catch(() => {});
+        await asosiyMenyu(chatId);
+      } else {
+        await bot.answerCallbackQuery(query.id, {
+          text: `❌ Siz hali ${KANAL_USERNAME} kanaliga obuna bo'lmadingiz!`,
+          show_alert: true
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    // ID nusxalash callback
     if (query.data && query.data.startsWith('copy_')) {
       const id = query.data.replace('copy_', '');
       await bot.answerCallbackQuery(query.id, {
-        text: `✅ ${id} — nusxalandi!`,
+        text: `✅ ${id} — nusxalash uchun ID'ni bosing!`,
         show_alert: false
-      });
+      }).catch(() => {});
     }
     return;
   }
@@ -98,10 +318,10 @@ async function handleUpdate(update) {
     if (matn) {
       await bot.answerInlineQuery(query.id, [
         {
-          type:  'article',
-          id:    '1',
-          title: `ID: ${matn}`,
-          description: 'ID ni ulashish uchun bosing',
+          type:        'article',
+          id:          '1',
+          title:       `ID: ${matn}`,
+          description: 'ID\'ni ulashish uchun bosing',
           input_message_content: {
             message_text: `🆔 ID: <code>${matn}</code>`,
             parse_mode:   'HTML'
@@ -117,16 +337,27 @@ async function handleUpdate(update) {
   if (!msg) return;
 
   const chatId = msg.chat.id;
+  const userId = msg.from.id;
+
+  // ── Obuna tekshiruvi — barcha xabarlar uchun ──────────────────────────────
+  const obunaBor = await obunaTekshir(userId);
+  if (!obunaBor) {
+    await obunaXabari(chatId);
+    return;
+  }
 
   // /start
   if (msg.text && msg.text.startsWith('/start')) {
-    const ism    = msg.from.first_name || 'Foydalanuvchi';
-    const userId = msg.from.id;
+    const ism = msg.from.first_name || 'Foydalanuvchi';
     await bot.sendMessage(
       chatId,
       `👋 Salom, <b>${ism}</b>!\n\n` +
       `🆔 <b>Sizning ID'ingiz:</b> <code>${userId}</code>\n\n` +
-      `📌 Biror xabarni <b>forward</b> qiling — men uning ID'ini aniqlayman!`,
+      `📌 <b>Nima qila olaman?</b>\n` +
+      `• Tugmalar orqali foydalanuvchi, bot, guruh, kanal ID'ini aniqlash\n` +
+      `• <b>Forward</b> xabar yuborish orqali ID aniqlash\n` +
+      `• <b>t.me/username</b> yoki <b>@username</b> yuboring — ID'ini topaman!\n\n` +
+      `⬇️ Quyidagi menyudan foydalaning:`,
       { parse_mode: 'HTML' }
     );
     await asosiyMenyu(chatId);
@@ -135,15 +366,25 @@ async function handleUpdate(update) {
 
   // /id
   if (msg.text && msg.text.startsWith('/id')) {
-    const userId   = msg.from.id;
     const userName = msg.from.username ? `@${msg.from.username}` : 'Yo\'q';
+    const ism      = msg.from.first_name || 'Noma\'lum';
+    const familya  = msg.from.last_name  ? ` ${msg.from.last_name}` : '';
     await bot.sendMessage(
       chatId,
       `🆔 <b>Sizning ma'lumotlaringiz:</b>\n\n` +
-      `◆ User ID: <code>${userId}</code>\n` +
-      `◆ Chat ID: <code>${chatId}</code>\n` +
-      `◆ Username: ${userName}`,
-      { parse_mode: 'HTML' }
+      `◆ Ism: <b>${ism}${familya}</b>\n` +
+      `◆ Username: ${userName}\n` +
+      `◆ Foydalanuvchi ID: <code>${userId}</code>\n` +
+      `◆ Chat ID: <code>${chatId}</code>`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `📋 ID nusxalash: ${userId}`, callback_data: `copy_${userId}` }],
+            [{ text: '🚀 ID ulashish', switch_inline_query: `Foydalanuvchi ID: ${userId}` }]
+          ]
+        }
+      }
     );
     return;
   }
@@ -152,20 +393,27 @@ async function handleUpdate(update) {
   if (msg.text && msg.text.startsWith('/help')) {
     await bot.sendMessage(
       chatId,
-      `📖 <b>Buyruqlar ro'yxati:</b>\n\n` +
+      `📖 <b>Yordam — Buyruqlar ro'yxati:</b>\n\n` +
       `/start — Asosiy menyuni ochish\n` +
       `/id    — O'z ID'ingizni bilish\n` +
       `/help  — Yordam\n\n` +
-      `<b>Tugmalar:</b>\n` +
-      `👤 <b>User</b>       — oddiy foydalanuvchi ID'si\n` +
-      `⭐ <b>Premium</b>    — premium foydalanuvchi ID'si\n` +
-      `🤖 <b>Bot</b>        — bot ID'si\n` +
-      `👥 <b>Group</b>      — guruh ID'si\n` +
-      `📢 <b>Channel</b>    — kanal ID'si\n` +
-      `💬 <b>Forum</b>      — forum ID'si\n` +
-      `👥 <b>My Group</b>   — o'z guruhingiz ID'si\n` +
-      `📢 <b>My Channel</b> — o'z kanalingiz ID'si\n` +
-      `💬 <b>My Forum</b>   — o'z forumingiz ID'si`,
+      `<b>📱 Tugmalar:</b>\n` +
+      `👤 <b>Foydalanuvchi</b> — oddiy foydalanuvchi ID'si\n` +
+      `⭐ <b>Premium</b>       — premium foydalanuvchi ID'si\n` +
+      `🤖 <b>Bot</b>           — bot ID'si\n` +
+      `👥 <b>Guruh</b>         — guruh ID'si\n` +
+      `📢 <b>Kanal</b>         — kanal ID'si\n` +
+      `💬 <b>Forum</b>         — forum ID'si\n` +
+      `👥 <b>Mening guruhim</b>   — o'z guruhingiz ID'si\n` +
+      `📢 <b>Mening kanalim</b>   — o'z kanalingiz ID'si\n` +
+      `💬 <b>Mening forumim</b>   — o'z forumingiz ID'si\n\n` +
+      `<b>🔗 URL / Username:</b>\n` +
+      `Quyidagi formatlarni yuboring:\n` +
+      `• <code>https://t.me/username</code>\n` +
+      `• <code>https://t.me/c/1234567890</code> (kanal)\n` +
+      `• <code>@username</code>\n\n` +
+      `<b>📨 Forward:</b>\n` +
+      `Istalgan xabarni forward qiling — ID'ini aniqlayman!`,
       { parse_mode: 'HTML' }
     );
     return;
@@ -173,6 +421,57 @@ async function handleUpdate(update) {
 
   // Boshqa buyruqlarni o'tkazib yuboring
   if (msg.text && msg.text.startsWith('/')) return;
+
+  // ── Menyu tugmalari ──────────────────────────────────────────────────────────
+  if (msg.text === '🆔 Mening ID\'im') {
+    const userName = msg.from.username ? `@${msg.from.username}` : 'Yo\'q';
+    const ism      = msg.from.first_name || 'Noma\'lum';
+    const familya  = msg.from.last_name  ? ` ${msg.from.last_name}` : '';
+    await bot.sendMessage(
+      chatId,
+      `🆔 <b>Sizning ma'lumotlaringiz:</b>\n\n` +
+      `◆ Ism: <b>${ism}${familya}</b>\n` +
+      `◆ Username: ${userName}\n` +
+      `◆ Foydalanuvchi ID: <code>${userId}</code>\n` +
+      `◆ Chat ID: <code>${chatId}</code>`,
+      {
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: `📋 ID nusxalash: ${userId}`, callback_data: `copy_${userId}` }],
+            [{ text: '🚀 ID ulashish', switch_inline_query: `Foydalanuvchi ID: ${userId}` }]
+          ]
+        }
+      }
+    );
+    return;
+  }
+
+  if (msg.text === '📖 Yordam') {
+    await bot.sendMessage(
+      chatId,
+      `📖 <b>Yordam — Buyruqlar ro'yxati:</b>\n\n` +
+      `/start — Asosiy menyuni ochish\n` +
+      `/id    — O'z ID'ingizni bilish\n` +
+      `/help  — Yordam\n\n` +
+      `<b>📱 Tugmalar:</b>\n` +
+      `👤 <b>Foydalanuvchi</b> — oddiy foydalanuvchi ID'si\n` +
+      `⭐ <b>Premium</b>       — premium foydalanuvchi ID'si\n` +
+      `🤖 <b>Bot</b>           — bot ID'si\n` +
+      `👥 <b>Guruh</b>         — guruh ID'si\n` +
+      `📢 <b>Kanal</b>         — kanal ID'si\n` +
+      `💬 <b>Forum</b>         — forum ID'si\n\n` +
+      `<b>🔗 URL / Username:</b>\n` +
+      `Quyidagi formatlarni yuboring:\n` +
+      `• <code>https://t.me/username</code>\n` +
+      `• <code>https://t.me/c/1234567890</code>\n` +
+      `• <code>@username</code>\n\n` +
+      `<b>📨 Forward:</b>\n` +
+      `Istalgan xabarni forward qiling — ID'ini aniqlayman!`,
+      { parse_mode: 'HTML' }
+    );
+    return;
+  }
 
   // ── Forward xabarlar ────────────────────────────────────────────────────────
   if (msg.forward_origin) {
@@ -182,10 +481,11 @@ async function handleUpdate(update) {
       const user     = origin.sender_user;
       const id       = user.id;
       const ism      = user.first_name || 'Noma\'lum';
+      const familya  = user.last_name ? ` ${user.last_name}` : '';
       const username = user.username ? `@${user.username}` : 'Yo\'q';
       await bot.sendMessage(chatId,
-        `✅ <b>👤 Forward: Foydalanuvchi</b>\n\n` +
-        `◆ Ismi: <b>${ism}</b>\n` +
+        `✅ <b>Forward: 👤 Foydalanuvchi</b>\n\n` +
+        `◆ Ismi: <b>${ism}${familya}</b>\n` +
         `◆ Username: ${username}\n` +
         `◆ ID: <code>${id}</code>`,
         {
@@ -203,7 +503,10 @@ async function handleUpdate(update) {
 
     if (origin.type === 'hidden_user') {
       await bot.sendMessage(chatId,
-        `⚠️ <b>Forward: Foydalanuvchi</b>\n\n❌ ID'ni olib bo'lmadi!\n📌 Sabab: Foydalanuvchi forward'da o'z ismini yashirgan.`,
+        `⚠️ <b>Forward: Foydalanuvchi</b>\n\n` +
+        `❌ ID'ni olib bo'lmadi!\n\n` +
+        `📌 <b>Sabab:</b> Foydalanuvchi "Telegram sozlamalari → Maxfiylik → Forwardlar" bo'limida o'z ismini yashirgan.\n\n` +
+        `💡 <b>Yechim:</b> Foydalanuvchidan to'g'ridan-to'g'ri xabar yuboring va uni forward qiling.`,
         { parse_mode: 'HTML' }
       );
       return;
@@ -214,8 +517,9 @@ async function handleUpdate(update) {
       const id    = chat.id;
       const title = chat.title || 'Noma\'lum';
       const tur   = chat.type === 'channel' ? '📢 Kanal' : '👥 Guruh';
+      const uname = chat.username ? `\n◆ Username: @${chat.username}` : '';
       await bot.sendMessage(chatId,
-        `✅ <b>Forward: ${tur}</b>\n\n◆ Nomi: <b>${title}</b>\n◆ ID: <code>${id}</code>`,
+        `✅ <b>Forward: ${tur}</b>\n\n◆ Nomi: <b>${title}</b>${uname}\n◆ ID: <code>${id}</code>`,
         {
           parse_mode: 'HTML',
           reply_markup: {
@@ -233,8 +537,9 @@ async function handleUpdate(update) {
       const chat  = origin.chat;
       const id    = chat.id;
       const title = chat.title || 'Noma\'lum';
+      const uname = chat.username ? `\n◆ Username: @${chat.username}` : '';
       await bot.sendMessage(chatId,
-        `✅ <b>Forward: 📢 Kanal</b>\n\n◆ Nomi: <b>${title}</b>\n◆ ID: <code>${id}</code>`,
+        `✅ <b>Forward: 📢 Kanal</b>\n\n◆ Nomi: <b>${title}</b>${uname}\n◆ ID: <code>${id}</code>`,
         {
           parse_mode: 'HTML',
           reply_markup: {
@@ -255,15 +560,16 @@ async function handleUpdate(update) {
     return;
   }
 
-  // Eski API: forward_from
+  // ── Eski API: forward_from ───────────────────────────────────────────────────
   if (msg.forward_from) {
     const user     = msg.forward_from;
     const id       = user.id;
     const ism      = user.first_name || 'Noma\'lum';
+    const familya  = user.last_name ? ` ${user.last_name}` : '';
     const username = user.username ? `@${user.username}` : 'Yo\'q';
     await bot.sendMessage(chatId,
-      `✅ <b>👤 Forward: Foydalanuvchi</b>\n\n` +
-      `◆ Ismi: <b>${ism}</b>\n◆ Username: ${username}\n◆ ID: <code>${id}</code>`,
+      `✅ <b>Forward: 👤 Foydalanuvchi</b>\n\n` +
+      `◆ Ismi: <b>${ism}${familya}</b>\n◆ Username: ${username}\n◆ ID: <code>${id}</code>`,
       {
         parse_mode: 'HTML',
         reply_markup: {
@@ -282,8 +588,9 @@ async function handleUpdate(update) {
     const id    = chat.id;
     const title = chat.title || 'Noma\'lum';
     const tur   = chat.type === 'channel' ? '📢 Kanal' : '👥 Guruh';
+    const uname = chat.username ? `\n◆ Username: @${chat.username}` : '';
     await bot.sendMessage(chatId,
-      `✅ <b>Forward: ${tur}</b>\n\n◆ Nomi: <b>${title}</b>\n◆ ID: <code>${id}</code>`,
+      `✅ <b>Forward: ${tur}</b>\n\n◆ Nomi: <b>${title}</b>${uname}\n◆ ID: <code>${id}</code>`,
       {
         parse_mode: 'HTML',
         reply_markup: {
@@ -299,13 +606,15 @@ async function handleUpdate(update) {
 
   if (msg.forward_sender_name) {
     await bot.sendMessage(chatId,
-      `⚠️ <b>Forward: Foydalanuvchi</b>\n\n❌ ID'ni olib bo'lmadi!\n📌 Sabab: Foydalanuvchi forward'da o'z ismini yashirgan.`,
+      `⚠️ <b>Forward: Foydalanuvchi</b>\n\n` +
+      `❌ ID'ni olib bo'lmadi!\n\n` +
+      `📌 <b>Sabab:</b> Foydalanuvchi "Telegram sozlamalari → Maxfiylik → Forwardlar" bo'limida o'z ismini yashirgan.`,
       { parse_mode: 'HTML' }
     );
     return;
   }
 
-  // ── users_shared ────────────────────────────────────────────────────────────
+  // ── users_shared ─────────────────────────────────────────────────────────────
   if (msg.users_shared) {
     const reqId = msg.users_shared.request_id;
     const users = msg.users_shared.users;
@@ -322,29 +631,48 @@ async function handleUpdate(update) {
     return;
   }
 
-  // ── chat_shared ─────────────────────────────────────────────────────────────
+  // ── chat_shared ──────────────────────────────────────────────────────────────
   if (msg.chat_shared) {
-    const reqId  = msg.chat_shared.request_id;
+    const reqId        = msg.chat_shared.request_id;
     const sharedChatId = msg.chat_shared.chat_id;
-    const turMap = { 20: 'group', 21: 'channel', 22: 'forum', 30: 'my_group', 31: 'my_channel', 32: 'my_forum' };
+    const turMap = {
+      20: 'group',    21: 'channel',    22: 'forum',
+      30: 'my_group', 31: 'my_channel', 32: 'my_forum'
+    };
     await idNatijasi(chatId, turMap[reqId] || 'group', sharedChatId);
     return;
+  }
+
+  // ── URL / @username tekshiruvi ───────────────────────────────────────────────
+  if (msg.text) {
+    const urlBilan = await urlOrqaliIdAniqlash(chatId, msg.text);
+    if (urlBilan) return;
+
+    await bot.sendMessage(chatId,
+      `❓ <b>Tushunmadim</b>\n\n` +
+      `Quyidagi usullardan birini ishlating:\n\n` +
+      `🔘 <b>Tugmalar</b> — pastdagi menyudan tanlang\n` +
+      `📨 <b>Forward</b> — istalgan xabarni forward qiling\n` +
+      `🔗 <b>URL / Username</b> — masalan:\n` +
+      `   <code>https://t.me/durov</code>\n` +
+      `   <code>@durov</code>\n\n` +
+      `Yordam uchun 📖 <b>Yordam</b> tugmasini bosing.`,
+      { parse_mode: 'HTML' }
+    );
   }
 }
 
 // ─── Vercel Serverless Handler ─────────────────────────────────────────────────
 
 module.exports = async (req, res) => {
-  // Faqat POST so'rovlarini qabul qilish
   if (req.method !== 'POST') {
-    return res.status(200).json({ ok: true, message: 'Bot ishlayapti! 🤖' });
+    return res.status(200).json({ ok: true, message: 'Bot muvaffaqiyatli ishlayapti! 🤖' });
   }
 
   try {
     await handleUpdate(req.body);
   } catch (err) {
     console.error('Update xatosi:', err.message);
-    // Telegram'ga har doim 200 qaytarish (qayta urinishlarni oldini olish)
   }
 
   res.status(200).json({ ok: true });
