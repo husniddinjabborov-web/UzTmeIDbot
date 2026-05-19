@@ -1,0 +1,14 @@
+{
+    "name": "UzTmeIDbot",
+    "version": "1.0.0",
+    "description": "Telegram bot — kanal, guruh, lichka ID larini olish",
+    "main": "bot.js",
+    "scripts": {
+        "start": "node bot.js",
+        "setup-webhook": "node scripts/set-webhook.js"
+    },
+    "dependencies": {
+        "dotenv": "^17.4.2",
+        "node-telegram-bot-api": "^0.66.0"
+    }
+}
