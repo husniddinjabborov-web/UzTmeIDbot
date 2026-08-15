@@ -93,6 +93,11 @@ function urlDanUsernameAjrat(matn) {
     return { type: 'username', value: '@' + atUsername[1] };
   }
 
+  const raqamliId = matn.match(/^-?\d{5,15}$/);
+  if (raqamliId) {
+    return { type: 'raw_id', value: raqamliId[0] };
+  }
+
   return null;
 }
 
@@ -129,6 +134,66 @@ async function urlOrqaliIdAniqlash(chatId, matn) {
         }
       }
     );
+    return true;
+  }
+
+  if (natija.type === 'raw_id') {
+    const id = natija.value;
+
+    // Avval botga tanish bo'lsa — haqiqiy ismini olishga harakat qilamiz
+    let korinishMatni = id;   // topilmasa, ID'ning o'zi ko'rinadi
+    let uname = null;
+    let chatType = null;
+
+    try {
+      const chat = await bot.getChat(id);
+      chatType   = chat.type;
+      uname      = chat.username ? `@${chat.username}` : null;
+      const ism  = chat.first_name || chat.title || null;
+      const familya = chat.last_name ? ` ${chat.last_name}` : '';
+      if (ism) korinishMatni = `${ism}${familya}`;
+    } catch {
+      // Bot bu ID'ni bilmaydi — muammo emas, ID'ning o'zini eslatma matni sifatida ishlatamiz
+    }
+
+    try {
+      await bot.sendMessage(chatId, korinishMatni, {
+        entities: [
+          {
+            type:   'text_mention',
+            offset: 0,
+            length: korinishMatni.length,
+            user:   { id: Number(id), is_bot: false, first_name: korinishMatni }
+          }
+        ],
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '👤 Profilni ochish', url: `tg://user?id=${id}` }],
+            [{ text: `📋 ID nusxalash: ${id}`, callback_data: `copy_${id}` }]
+          ]
+        }
+      });
+
+      if (!chatType) {
+        await bot.sendMessage(chatId,
+          `ℹ️ <i>Eslatma yaratildi, lekin bot bu ID'ni oldin ko'rmagani uchun ismini bilmaydi — shu sabab ID'ning o'zi ko'rsatildi. ` +
+          `Ismini o'zgartirish uchun: </i><code>/mention ${id} Ism Familiya</code>`,
+          { parse_mode: 'HTML' }
+        );
+      } else if (chatType !== 'private') {
+        await bot.sendMessage(chatId,
+          `⚠️ <i>Diqqat: bu ID foydalanuvchi emas, ${chatType === 'channel' ? 'kanal' : 'guruh/chat'} ID'siga o'xshaydi. ` +
+          `text_mention faqat shaxsiy foydalanuvchilar uchun ishlaydi, shuning uchun havola ishlamasligi mumkin.</i>`,
+          { parse_mode: 'HTML' }
+        );
+      }
+    } catch (err) {
+      await bot.sendMessage(chatId,
+        `❌ <b>Eslatma yaratib bo'lmadi</b>\n\nID: <code>${id}</code>\n📌 Sabab: ${err.message}`,
+        { parse_mode: 'HTML' }
+      ).catch(e => console.error('raw_id mention xatosi:', e.message));
+    }
+
     return true;
   }
 
@@ -207,7 +272,49 @@ async function urlOrqaliIdAniqlash(chatId, matn) {
   return true;
 }
 
-// ─── Asosiy menyu ─────────────────────────────────────────────────────────────
+// ─── text_mention orqali ID asosida eslatma yaratish ──────────────────────────
+
+async function eslatmaYarat(chatId, buyruqMatni) {
+  // Format: /mention <ID> <Ism (bir yoki bir necha so'z)>
+  const qismlar = buyruqMatni.trim().split(/\s+/);
+  const buyruq  = qismlar.shift(); // /mention
+
+  const id  = qismlar.shift();
+  const ism = qismlar.join(' ');
+
+  if (!id || !/^\d{5,15}$/.test(id) || !ism) {
+    await bot.sendMessage(chatId,
+      `📌 <b>ID orqali eslatma yaratish</b>\n\n` +
+      `Foydalanuvchi username'i bo'lmasa ham, uni ID orqali eslatib bo'ladi.\n\n` +
+      `<b>Format:</b>\n<code>/mention 123456789 Ism Familiya</code>\n\n` +
+      `⚠️ Ism — siz o'zingiz kiritasiz (bot buni bilmasligi mumkin, chunki bu shart emas).\n` +
+      `✅ Bu usul ishlashi uchun bot o'sha foydalanuvchini oldin ko'rgan bo'lishi shart emas — ` +
+      `faqat to'g'ri ID kifoya, chunki eslatmani Telegram serverlari o'zi hal qiladi.`,
+      { parse_mode: 'HTML' }
+    );
+    return;
+  }
+
+  try {
+    await bot.sendMessage(chatId, ism, {
+      entities: [
+        {
+          type:   'text_mention',
+          offset: 0,
+          length: ism.length,
+          user:   { id: Number(id), is_bot: false, first_name: ism }
+        }
+      ]
+    });
+  } catch (err) {
+    await bot.sendMessage(chatId,
+      `❌ <b>Eslatma yaratib bo'lmadi</b>\n\n📌 Sabab: ${err.message}`,
+      { parse_mode: 'HTML' }
+    ).catch(() => {});
+  }
+}
+
+
 
 function asosiyMenyu(chatId) {
   bot.sendMessage(
@@ -324,6 +431,16 @@ bot.onText(/\/id/, async (msg) => {
   ).catch(err => console.error('/id xatosi:', err.message));
 });
 
+// ─── /mention — ID orqali text_mention yaratish ────────────────────────────────
+
+bot.onText(/\/mention(.*)/, async (msg, match) => {
+  const chatId = msg.chat.id;
+  const obunaBor = await obunaTekshir(msg.from.id);
+  if (!obunaBor) return obunaXabari(chatId);
+
+  await eslatmaYarat(chatId, '/mention' + match[1]);
+});
+
 // ─── /help ────────────────────────────────────────────────────────────────────
 
 bot.onText(/\/help/, async (msg) => {
@@ -335,6 +452,7 @@ bot.onText(/\/help/, async (msg) => {
     `📖 <b>Yordam — Buyruqlar ro'yxati:</b>\n\n` +
     `/start — Asosiy menyuni ochish\n` +
     `/id    — O'z ID'ingizni bilish\n` +
+    `/mention <ID> <Ism> — ID orqali eslatma (text_mention) yaratish\n` +
     `/help  — Yordam\n\n` +
     `<b>📱 Tugmalar:</b>\n` +
     `👤 <b>Foydalanuvchi</b> — oddiy foydalanuvchi ID'si\n` +
