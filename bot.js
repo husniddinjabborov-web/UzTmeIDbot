@@ -12,9 +12,9 @@ const bot = new TelegramBot(TOKEN, { polling: true });
 
 // ─── Majburiy obuna kanali ─────────────────────────────────────────────────────
 
-const KANAL_ID       = -1003810486984;
-const KANAL_USERNAME = '@gridion_uz';
-const KANAL_URL      = 'https://t.me/gridion_uz';
+const KANAL_ID       = -1003588903271;
+const KANAL_USERNAME = '@OilaByudjet';
+const KANAL_URL      = 'https://t.me/OilaByudjet';
 
 /**
  * Foydalanuvchi kanalga obuna bo'lganini tekshiradi.
