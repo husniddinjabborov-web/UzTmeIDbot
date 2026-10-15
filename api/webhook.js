@@ -8,9 +8,9 @@ const bot = new TelegramBot(TOKEN);
 
 // ─── Majburiy obuna kanali ─────────────────────────────────────────────────────
 
-const KANAL_ID       = -1003588903271;
-const KANAL_USERNAME = '@OilaByudjet';
-const KANAL_URL      = 'https://t.me/OilaByudjet';
+const KANAL_ID       = -1002323019888;
+const KANAL_USERNAME = '@Jabborovman';
+const KANAL_URL      = 'https://t.me/Jabborovman'
 
 
 /**
