@@ -41,20 +41,26 @@ async function sendError(bot, chatId, err) {
 
 // ─── Buyruqlar ────────────────────────────────────────────────────────────────
 
-function platformsText() {
+/** Ro'yxat 2 ta xabarga bo'linadi (Telegram chegarasi 4096 belgi): ishlaydiganlar va tayyor bo'lmaganlar sabablari bilan. */
+function platformsMessages() {
   const list = entries();
   const group = (title, pred) => {
     const rows = list.filter(pred).map(e => `${e.n}. ${esc(e.name)} — ${esc(e.label)}`);
     return rows.length ? `<b>${title}</b>\n${rows.join('\n')}` : '';
   };
-  return [
+  const first = [
     '🌐 <b>Qo\'llab-quvvatlanadigan platformalar</b>',
     group('✅ To\'liq ishlaydi', e => e.status === 'full' || e.status === 'existing' || (e.status === 'needs_key' && e.keysOk)),
     group('🟡 Qisman ishlaydi', e => e.status === 'partial' || e.status === 'url_only' || (e.status === 'needs_key' && !e.keysOk)),
-    group('⛔ Hozircha tayyor emas', e => e.status === 'not_implemented'),
-    'Tafsilot: <code>docs/PLATFORMS.md</code>. Sabablar uchun: /status'
+    'Havola yuboring, masalan: <code>https://github.com/torvalds/linux</code>'
   ].filter(Boolean).join('\n\n');
+
+  const notReady = list.filter(e => e.status === 'not_implemented')
+    .map(e => `${e.n}. <b>${esc(e.name)}</b> — ${esc(e.reason)}`);
+  const second = notReady.length ? `⛔ <b>Hozircha tayyor emas</b>\n\n${notReady.join('\n')}` : '';
+  return [first, second].filter(Boolean);
 }
+const platformsText = () => platformsMessages().join('\n\n');
 
 let statusCache = { at: 0, text: '' };
 
@@ -89,7 +95,10 @@ async function handleCommand(bot, msg) {
   const cmd = m[1].toLowerCase(), arg = (m[2] || '').trim();
   const chatId = msg.chat.id, userId = msg.from.id;
 
-  if (cmd === 'platforms') { await bot.sendMessage(chatId, platformsText(), HTML); return true; }
+  if (cmd === 'platforms') {
+    for (const m of platformsMessages()) await bot.sendMessage(chatId, m, HTML);
+    return true;
+  }
 
   if (cmd === 'status') {
     if (!allow(userId)) return rateLimited(bot, chatId);
@@ -139,4 +148,4 @@ async function handleText(bot, msg) {
   return handleUniversalText(bot, msg.chat.id, msg.from.id, msg.text);
 }
 
-module.exports = { handleText, handleCommand, handleUniversalText, platformsText, statusText };
+module.exports = { handleText, handleCommand, handleUniversalText, platformsText, platformsMessages, statusText };

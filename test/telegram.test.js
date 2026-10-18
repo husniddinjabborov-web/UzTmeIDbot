@@ -79,12 +79,15 @@ describe('Telegram handlerlar (soxta bot bilan)', () => {
     const bot = fakeBot();
     for (const c of ['/platforms', '/search', '/cancel']) assert.equal(await handlers.handleCommand(bot, msg(c)), true, c);
     assert.match(bot.sent[0].text, /Qo'llab-quvvatlanadigan platformalar/);
-    assert.ok(bot.sent[0].text.length < 4096, 'Telegram xabar chegarasi');
-    assert.equal(bot.sent[1].opts.reply_markup.force_reply, true);
+    assert.match(bot.sent[1].text, /tayyor emas/);
+    assert.match(bot.sent[1].text, /WhatsApp/, 'tayyor bo\'lmagan platforma sababi bilan ko\'rsatilishi kerak');
+    for (const m of bot.sent.slice(0, 2)) assert.ok(m.text.length < 4096, 'Telegram xabar chegarasi');
+    assert.ok(!bot.sent.some(m => /docs\/PLATFORMS\.md/.test(m.text)), 'foydalanuvchiga repozitoriy fayliga havola ko\'rsatilmasin');
+    assert.equal(bot.sent[2].opts.reply_markup.force_reply, true);
     mockNetworkDown();
     assert.equal(await handlers.handleCommand(bot, msg('/status')), true);
-    assert.match(bot.sent[3].text, /Xizmatlar holati/);
-    assert.match(bot.sent[3].text, /⚠️/);
+    assert.match(bot.sent[4].text, /Xizmatlar holati/);
+    assert.match(bot.sent[4].text, /⚠️/);
   });
 
   test('/start, /help, /id kabi eski buyruqlar handleCommand tomonidan tegilmaydi', async () => {
