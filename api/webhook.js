@@ -1,4 +1,5 @@
 const TelegramBot = require('node-telegram-bot-api');
+const universal = require('../src/telegram/handlers');   // Universal ID Finder (GitHub, YouTube, Discord, ...)
 
 const TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN) throw new Error('BOT_TOKEN muhit o\'zgaruvchisi topilmadi!');
@@ -506,7 +507,12 @@ async function handleUpdate(update) {
       `📖 <b>Yordam — Buyruqlar ro'yxati:</b>\n\n` +
       `/start — Asosiy menyuni ochish\n` +
       `/id    — O'z ID'ingizni bilish\n` +
-      `/mention <ID> <Ism> — ID orqali eslatma (text_mention) yaratish\n` +
+      `/mention &lt;ID&gt; &lt;Ism&gt; — ID orqali eslatma (text_mention) yaratish\n` +
+      `/platforms — Qo'llab-quvvatlanadigan platformalar\n` +
+      `/search — Havola yoki username bo'yicha ID qidirish\n` +
+      `/json &lt;havola&gt; — Natijani JSON ko'rinishida olish\n` +
+      `/status — Xizmatlar holati\n` +
+      `/cancel — Bekor qilish\n` +
       `/help  — Yordam\n\n` +
       `<b>📱 Tugmalar:</b>\n` +
       `👤 <b>Foydalanuvchi</b> — oddiy foydalanuvchi ID'si\n` +
@@ -529,6 +535,9 @@ async function handleUpdate(update) {
     );
     return;
   }
+
+  // Universal ID Finder buyruqlari: /platforms /search /status /cancel /json
+  if (msg.text && msg.text.startsWith('/') && await universal.handleCommand(bot, msg)) return;
 
   // Boshqa buyruqlarni o'tkazib yuboring
   if (msg.text && msg.text.startsWith('/')) return;
@@ -753,6 +762,9 @@ async function handleUpdate(update) {
     await idNatijasi(chatId, turMap[reqId] || 'group', sharedChatId);
     return;
   }
+
+  // ── Universal ID Finder: boshqa platformalar havolalari (t.me va @username eski oqimda qoladi) ──
+  if (msg.text && await universal.handleText(bot, msg)) return;
 
   // ── URL / @username tekshiruvi ───────────────────────────────────────────────
   if (msg.text) {

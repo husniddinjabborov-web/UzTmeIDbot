@@ -1,5 +1,6 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
+const universal = require('./src/telegram/handlers');   // Universal ID Finder (GitHub, YouTube, Discord, ...)
 
 const TOKEN = process.env.BOT_TOKEN;
 
@@ -451,7 +452,12 @@ bot.onText(/\/help/, async (msg) => {
     `📖 <b>Yordam — Buyruqlar ro'yxati:</b>\n\n` +
     `/start — Asosiy menyuni ochish\n` +
     `/id    — O'z ID'ingizni bilish\n` +
-    `/mention <ID> <Ism> — ID orqali eslatma (text_mention) yaratish\n` +
+    `/mention &lt;ID&gt; &lt;Ism&gt; — ID orqali eslatma (text_mention) yaratish\n` +
+    `/platforms — Qo'llab-quvvatlanadigan platformalar\n` +
+    `/search — Havola yoki username bo'yicha ID qidirish\n` +
+    `/json &lt;havola&gt; — Natijani JSON ko'rinishida olish\n` +
+    `/status — Xizmatlar holati\n` +
+    `/cancel — Bekor qilish\n` +
     `/help  — Yordam\n\n` +
     `<b>📱 Tugmalar:</b>\n` +
     `👤 <b>Foydalanuvchi</b> — oddiy foydalanuvchi ID'si\n` +
@@ -474,6 +480,14 @@ bot.onText(/\/help/, async (msg) => {
   ).catch(err => console.error('/help xatosi:', err.message));
 });
 
+// ─── Universal ID Finder buyruqlari ──────────────────────────────────────────
+
+bot.onText(/^\/(platforms|status|search|cancel|json)(?:@\w+)?(?:\s|$)/i, async (msg) => {
+  const obunaBor = await obunaTekshir(msg.from.id);
+  if (!obunaBor) return obunaXabari(msg.chat.id);
+  await universal.handleCommand(bot, msg).catch(err => console.error('Universal buyruq xatosi:', err.message));
+});
+
 // ─── Xabarlarni qabul qilish ──────────────────────────────────────────────────
 
 bot.on('message', async (msg) => {
@@ -485,6 +499,9 @@ bot.on('message', async (msg) => {
   // Obuna tekshiruvi — barcha xabarlar uchun
   const obunaBor = await obunaTekshir(userId);
   if (!obunaBor) return obunaXabari(chatId);
+
+  // ── Universal ID Finder: boshqa platformalar havolalari ───────────────────
+  if (msg.text && await universal.handleText(bot, msg).catch(err => { console.error('Universal xato:', err.message); return false; })) return;
 
   // ── Menyu tugmalari ───────────────────────────────────────────────────────
   if (msg.text === '🆔 Mening ID\'im') {
